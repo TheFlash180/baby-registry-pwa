@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useRegistry } from './lib/useRegistry';
 import { claimedQty, type Claim, type Filter, type Item } from './lib/types';
 import { Header } from './components/Header';
@@ -13,7 +13,9 @@ import {
 } from './components/Modals';
 import { Toasts, useToasts } from './components/Toast';
 import { TeddyBear, HeartDivider } from './components/Motifs';
-import { AdminPage } from './admin/AdminPage';
+
+// Guests never open /admin — keep its code out of their download.
+const AdminPage = lazy(() => import('./admin/AdminPage'));
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(window.location.hash);
@@ -80,7 +82,18 @@ export default function App() {
   );
 
   if (route.startsWith('#/admin')) {
-    return <AdminPage registry={registry} push={push} toasts={toasts} />;
+    return (
+      <Suspense
+        fallback={
+          <div className="empty-state">
+            <TeddyBear className="teddy-small" />
+            <p>Opening the owner page…</p>
+          </div>
+        }
+      >
+        <AdminPage registry={registry} push={push} toasts={toasts} />
+      </Suspense>
+    );
   }
 
   const visibleItems = (catId: string) =>

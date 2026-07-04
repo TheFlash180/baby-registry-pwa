@@ -19,6 +19,19 @@ export function useRegistry() {
     if (!error && data) setClaims(data as Claim[]);
   }, []);
 
+  // Re-pull the catalog after admin edits so the main page (same session,
+  // hash navigation) shows new/changed/deleted items without a reload.
+  const reloadCatalog = useCallback(async () => {
+    const [cats, its, rets] = await Promise.all([
+      supabase.from('categories').select('*').order('sort_order'),
+      supabase.from('items').select('*').order('sort_order'),
+      supabase.from('retailers').select('*'),
+    ]);
+    if (!cats.error && cats.data) setCategories(cats.data as Category[]);
+    if (!its.error && its.data) setItems(its.data as Item[]);
+    if (!rets.error && rets.data) setRetailers(rets.data as Retailer[]);
+  }, []);
+
   useEffect(() => {
     sha256Hex(getClaimToken()).then(setMyTokenHash);
 
@@ -94,5 +107,6 @@ export function useRegistry() {
     loadError,
     claimItem,
     unclaimItem,
+    reloadCatalog,
   };
 }

@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import type { useRegistry } from '../lib/useRegistry';
-import type { Item, Retailer } from '../lib/types';
+import type { Retailer } from '../lib/types';
 import { Toasts, type ToastMsg } from '../components/Toast';
 import { TeddyBear } from '../components/Motifs';
 
@@ -9,7 +9,7 @@ type Registry = ReturnType<typeof useRegistry>;
 
 // The password is verified inside Postgres on every action (see schema.sql).
 // This page only remembers it for the session — nothing is trusted client-side.
-export function AdminPage({
+export default function AdminPage({
   registry,
   push,
   toasts,
@@ -23,45 +23,35 @@ export function AdminPage({
   const [checking, setChecking] = useState(false);
   const [retailerDrafts, setRetailerDrafts] = useState<Record<string, Partial<Retailer>>>({});
   const [newItemDrafts, setNewItemDrafts] = useState<Record<string, { name: string; max: string }>>({});
-  const [localRetailers, setLocalRetailers] = useState<Retailer[] | null>(null);
-  const [localItems, setLocalItems] = useState<Item[] | null>(null);
-
-  const retailers = localRetailers ?? registry.retailers;
-  const items = localItems ?? registry.items;
 
   const retailersByItem = useMemo(() => {
     const m = new Map<string, Retailer[]>();
-    for (const r of retailers) {
+    for (const r of registry.retailers) {
       const list = m.get(r.item_id) ?? [];
       list.push(r);
       m.set(r.item_id, list);
     }
     return m;
-  }, [retailers]);
+  }, [registry.retailers]);
 
-  const reloadRetailers = async () => {
-    const { data } = await supabase.from('retailers').select('*');
-    if (data) setLocalRetailers(data as Retailer[]);
-  };
-
-  const reloadItems = async () => {
-    const { data } = await supabase.from('items').select('*').order('sort_order');
-    if (data) setLocalItems(data as Item[]);
-  };
-
-  const unlock = async () => {
+  const unlock = async (pw: string) => {
     setChecking(true);
-    const { data, error } = await supabase.rpc('admin_check_password', {
-      p_password: password,
-    });
+    const { data, error } = await supabase.rpc('admin_check_password', { p_password: pw });
     setChecking(false);
     if (!error && data === true) {
-      sessionStorage.setItem('registry-admin-pw', password);
+      sessionStorage.setItem('registry-admin-pw', pw);
       setUnlocked(true);
     } else {
       push("That password isn't right — try again.", true);
     }
   };
+
+  // A password remembered from earlier this session unlocks automatically.
+  useEffect(() => {
+    const stored = sessionStorage.getItem('registry-admin-pw');
+    if (stored) void unlock(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const saveRetailer = async (itemId: string, r: Partial<Retailer> & { id?: string }) => {
     const { data, error } = await supabase.rpc('admin_upsert_retailer', {
@@ -75,7 +65,7 @@ export function AdminPage({
     if (error || !data) push("Couldn't save — check the connection.", true);
     else {
       push('Saved.');
-      await reloadRetailers();
+      await registry.reloadCatalog();
     }
   };
 
@@ -87,7 +77,7 @@ export function AdminPage({
     if (error || data !== true) push("Couldn't delete that entry.", true);
     else {
       push('Removed.');
-      await reloadRetailers();
+      await registry.reloadCatalog();
     }
   };
 
@@ -113,7 +103,23 @@ export function AdminPage({
     else {
       push(`Added "${draft.name.trim()}".`);
       setNewItemDrafts({ ...newItemDrafts, [categoryId]: { name: '', max: '1' } });
-      await reloadItems();
+      await registry.reloadCatalog();
+    }
+  };
+
+  const deleteItem = async (itemId: string, name: string, claimCount: number) => {
+    const warning = claimCount > 0
+      ? `Remove "${name}"? ${claimCount} claimed spot(s) will be removed with it — the guest(s) won't be told automatically.`
+      : `Remove "${name}" from the registry?`;
+    if (!window.confirm(warning)) return;
+    const { data, error } = await supabase.rpc('admin_delete_item', {
+      p_item_id: itemId,
+      p_password: password,
+    });
+    if (error || data !== true) push("Couldn't remove that item.", true);
+    else {
+      push(`Removed "${name}".`);
+      await registry.reloadCatalog();
     }
   };
 
@@ -126,7 +132,7 @@ export function AdminPage({
     if (error || data !== true) push("Couldn't update the claim limit.", true);
     else {
       push('Claim limit updated.');
-      await reloadItems();
+      await registry.reloadCatalog();
     }
   };
 
@@ -142,14 +148,14 @@ export function AdminPage({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && password && !checking) void unlock();
+              if (e.key === 'Enter' && password && !checking) void unlock(password);
             }}
           />
           <button
             className="btn btn-claim"
             style={{ width: '100%', marginTop: 12, padding: 12 }}
             disabled={!password || checking}
-            onClick={() => void unlock()}
+            onClick={() => void unlock(password)}
           >
             {checking ? 'Checking…' : 'Open the registry'}
           </button>
@@ -170,7 +176,7 @@ export function AdminPage({
         <strong>Claims</strong>
         {registry.claims.length === 0 && <p style={{ marginTop: 8 }}>No claims yet.</p>}
         {registry.claims.map((c) => {
-          const item = items.find((i) => i.id === c.item_id);
+          const item = registry.items.find((i) => i.id === c.item_id);
           return (
             <div className="claim-row" key={c.id}>
               <span>
@@ -202,7 +208,7 @@ export function AdminPage({
               <p style={{ marginTop: 14, fontWeight: 700 }}>
                 {cat.icon} {cat.name}
               </p>
-              {items
+              {registry.items
                 .filter((i) => i.category_id === cat.id)
                 .map((item) => {
                   const draft = retailerDrafts[item.id] ?? {};
@@ -216,11 +222,21 @@ export function AdminPage({
                           {item.name}
                           {claimCount > 0 && ` 🎁×${claimCount}`}
                         </span>
-                        <MaxClaimsEditor
-                          value={item.max_claims}
-                          min={Math.max(claimCount, 1)}
-                          onSave={(n) => void setMaxClaims(item.id, n)}
-                        />
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <MaxClaimsEditor
+                            value={item.max_claims}
+                            min={Math.max(claimCount, 1)}
+                            onSave={(n) => void setMaxClaims(item.id, n)}
+                          />
+                          <button
+                            className="small-btn"
+                            style={{ padding: '6px 10px' }}
+                            title="Remove this item from the registry"
+                            onClick={() => void deleteItem(item.id, item.name, claimCount)}
+                          >
+                            🗑
+                          </button>
+                        </span>
                       </div>
                       {(retailersByItem.get(item.id) ?? []).map((r) => (
                         <EditableRetailerRow

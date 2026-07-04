@@ -165,14 +165,26 @@ begin
   return v_id;
 end $$;
 
--- Owner can change how many people may claim an item.
+-- Owner can change how many people may claim an item (never below what's
+-- already claimed).
 create or replace function admin_set_max_claims(
   p_item_id uuid, p_max_claims int, p_password text)
 returns boolean language plpgsql security definer set search_path = public as $$
 begin
   if not _admin_ok(p_password) then return false; end if;
-  update items set max_claims = greatest(coalesce(p_max_claims, 1), 1)
+  update items set max_claims = greatest(
+    coalesce(p_max_claims, 1), 1,
+    coalesce((select sum(qty) from claims where item_id = p_item_id), 0))
   where id = p_item_id;
+  return found;
+end $$;
+
+-- Owner can delete an item (retailers and claims cascade with it).
+create or replace function admin_delete_item(p_item_id uuid, p_password text)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not _admin_ok(p_password) then return false; end if;
+  delete from items where id = p_item_id;
   return found;
 end $$;
 
@@ -212,6 +224,7 @@ grant execute on function admin_check_password(text) to anon;
 grant execute on function admin_remove_claim(uuid, text) to anon;
 grant execute on function admin_add_item(uuid, text, int, text) to anon;
 grant execute on function admin_set_max_claims(uuid, int, text) to anon;
+grant execute on function admin_delete_item(uuid, text) to anon;
 grant execute on function admin_upsert_retailer(uuid, uuid, text, numeric, text, text) to anon;
 grant execute on function admin_delete_retailer(uuid, text) to anon;
 
