@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRegistry } from './lib/useRegistry';
-import type { Claim, Filter, Item } from './lib/types';
+import { claimedQty, type Claim, type Filter, type Item } from './lib/types';
 import { Header } from './components/Header';
 import { GrowthMeter } from './components/GrowthMeter';
 import { Filters } from './components/Filters';
@@ -86,18 +86,18 @@ export default function App() {
   const visibleItems = (catId: string) =>
     registry.items.filter((i) => {
       if (i.category_id !== catId) return false;
-      const count = claimsByItem.get(i.id)?.length ?? 0;
-      const full = count >= i.max_claims;
+      const taken = claimedQty(claimsByItem.get(i.id) ?? []);
+      const full = taken >= i.max_claims;
       // "Still needed" = has open spots; "Claimed" = has at least one claim.
       if (filter === 'needed') return !full;
-      if (filter === 'claimed') return count > 0;
+      if (filter === 'claimed') return taken > 0;
       return true;
     });
 
-  const handleConfirmClaim = async (name: string) => {
+  const handleConfirmClaim = async (name: string, qty: number) => {
     if (!claiming) return;
     setBusy(true);
-    const result = await registry.claimItem(claiming.id, name);
+    const result = await registry.claimItem(claiming.id, name, qty);
     setBusy(false);
     setClaiming(null);
     if (result === 'ok') {
@@ -106,13 +106,7 @@ export default function App() {
       setInfo({
         title: 'Oh — just missed it!',
         message:
-          'Someone just claimed the last one of these — pick another item, there is plenty of love to go around!',
-      });
-    } else if (result === 'already') {
-      setInfo({
-        title: 'You already have this one',
-        message:
-          'This item is already on your list from this device. Tap its claimed name if you want to change it.',
+          'Someone just claimed those spots — pick fewer, or another item. There is plenty of love to go around!',
       });
     } else if (result === 'offline') {
       setInfo({
@@ -160,7 +154,7 @@ export default function App() {
         </div>
       ) : (
         <>
-          <GrowthMeter claimed={registry.claims.length} total={totalSpots} />
+          <GrowthMeter claimed={claimedQty(registry.claims)} total={totalSpots} />
           <Filters value={filter} onChange={setFilter} />
 
           {registry.categories.map((cat) => {
@@ -200,7 +194,7 @@ export default function App() {
       {claiming && (
         <ClaimModal
           item={claiming}
-          spotsLeft={claiming.max_claims - (claimsByItem.get(claiming.id)?.length ?? 0)}
+          spotsLeft={claiming.max_claims - claimedQty(claimsByItem.get(claiming.id) ?? [])}
           busy={busy}
           onConfirm={handleConfirmClaim}
           onClose={() => setClaiming(null)}

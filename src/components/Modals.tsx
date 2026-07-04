@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Claim, Item } from '../lib/types';
+import { claimedQty, type Claim, type Item } from '../lib/types';
 import { TeddyBear, Heart } from './Motifs';
 
 // Generic warm popup with an OK button — used for "someone just claimed
@@ -39,11 +39,13 @@ export function ClaimModal({
   item: Item;
   spotsLeft: number;
   busy: boolean;
-  onConfirm: (name: string) => void;
+  onConfirm: (name: string, qty: number) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState('');
+  const [qty, setQty] = useState(1);
   const valid = name.trim().length > 0;
+  const multi = item.max_claims > 1 && spotsLeft > 1;
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -66,9 +68,33 @@ export function ClaimModal({
           maxLength={60}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && valid && !busy) onConfirm(name.trim());
+            if (e.key === 'Enter' && valid && !busy) onConfirm(name.trim(), qty);
           }}
         />
+        {multi && (
+          <div className="qty-row">
+            <span>How many will you bring?</span>
+            <div className="qty-stepper">
+              <button
+                type="button"
+                disabled={qty <= 1}
+                onClick={() => setQty((q) => Math.max(1, q - 1))}
+                aria-label="fewer"
+              >
+                −
+              </button>
+              <span className="qty-value">{qty}</span>
+              <button
+                type="button"
+                disabled={qty >= spotsLeft}
+                onClick={() => setQty((q) => Math.min(spotsLeft, q + 1))}
+                aria-label="more"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
         <div className="actions">
           <button className="btn btn-soft" onClick={onClose}>
             Not yet
@@ -76,9 +102,9 @@ export function ClaimModal({
           <button
             className="btn btn-claim"
             disabled={!valid || busy}
-            onClick={() => onConfirm(name.trim())}
+            onClick={() => onConfirm(name.trim(), qty)}
           >
-            {busy ? 'Saving…' : "I'll get this"}
+            {busy ? 'Saving…' : qty > 1 ? `I'll get ${qty}` : "I'll get this"}
           </button>
         </div>
       </div>
@@ -102,7 +128,8 @@ export function ClaimedInfoModal({
   onClose: () => void;
 }) {
   const mine = claims.find((c) => c.claim_token_hash === myTokenHash);
-  const full = claims.length >= item.max_claims;
+  const taken = claimedQty(claims);
+  const full = taken >= item.max_claims;
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -116,13 +143,14 @@ export function ClaimedInfoModal({
             <div className="claimer" key={c.id}>
               <Heart size={12} />{' '}
               <strong>{c.claimer_name}</strong>
+              {c.qty > 1 && ` ×${c.qty}`}
               {c.claim_token_hash === myTokenHash && ' (you)'}
             </div>
           ))}
         </div>
         {item.max_claims > 1 && !full && (
           <p style={{ opacity: 0.8 }}>
-            {item.max_claims - claims.length} of {item.max_claims} spots still open.
+            {item.max_claims - taken} of {item.max_claims} spots still open.
           </p>
         )}
         {mine ? (
@@ -133,7 +161,7 @@ export function ClaimedInfoModal({
                 Keep it
               </button>
               <button className="btn btn-danger-soft" disabled={busy} onClick={onUnclaim}>
-                {busy ? 'Removing…' : 'Remove my claim'}
+                {busy ? 'Removing…' : mine.qty > 1 ? `Remove my claim (×${mine.qty})` : 'Remove my claim'}
               </button>
             </div>
           </>

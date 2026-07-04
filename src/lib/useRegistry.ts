@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 import { getClaimToken, sha256Hex } from './claimToken';
 import type { Category, Claim, Item, Retailer } from './types';
 
-export type ClaimResult = 'ok' | 'taken' | 'already' | 'invalid' | 'offline' | 'error';
+export type ClaimResult = 'ok' | 'taken' | 'invalid' | 'offline' | 'error';
 
 export function useRegistry() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -56,12 +56,13 @@ export function useRegistry() {
   }, [refetchClaims]);
 
   const claimItem = useCallback(
-    async (itemId: string, name: string): Promise<ClaimResult> => {
+    async (itemId: string, name: string, qty = 1): Promise<ClaimResult> => {
       if (!navigator.onLine) return 'offline';
       const { data, error } = await supabase.rpc('claim_item', {
         p_item_id: itemId,
         p_name: name,
         p_token: getClaimToken(),
+        p_qty: qty,
       });
       await refetchClaims();
       if (error) return 'error';

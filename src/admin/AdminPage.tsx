@@ -174,7 +174,8 @@ export function AdminPage({
           return (
             <div className="claim-row" key={c.id}>
               <span>
-                <strong>{c.claimer_name}</strong> → {item?.name ?? 'unknown item'}
+                <strong>{c.claimer_name}</strong>
+                {c.qty > 1 && ` ×${c.qty}`} → {item?.name ?? 'unknown item'}
               </span>
               <button
                 className="small-btn"
@@ -205,7 +206,9 @@ export function AdminPage({
                 .filter((i) => i.category_id === cat.id)
                 .map((item) => {
                   const draft = retailerDrafts[item.id] ?? {};
-                  const claimCount = registry.claims.filter((c) => c.item_id === item.id).length;
+                  const claimCount = registry.claims
+                    .filter((c) => c.item_id === item.id)
+                    .reduce((sum, c) => sum + c.qty, 0);
                   return (
                     <div className="item-block" key={item.id}>
                       <div className="head">

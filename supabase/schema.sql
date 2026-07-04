@@ -38,6 +38,8 @@ create table claims (
   -- never leaves the guest's browser except inside claim/unclaim RPC calls,
   -- so a leaked row can't be used to remove someone else's claim.
   claim_token_hash text not null,
+  -- how many spots of this item this guest is bringing (multi-claim items)
+  qty int not null default 1 check (qty >= 1),
   claimed_at timestamptz not null default now()
 );
 
@@ -79,30 +81,42 @@ $$ select exists (select 1 from registry_settings
 
 -- ---------------------------------------------------------------- guest RPCs
 
--- Returns 'ok', 'taken' (item is fully claimed), 'already' (this device
--- already claimed this item), or 'invalid'.
-create or replace function claim_item(p_item_id uuid, p_name text, p_token text)
+-- Returns 'ok', 'taken' (not enough spots left), or 'invalid'. Capacity is
+-- the SUM of claim quantities, checked while the item row is locked so races
+-- can't overbook. A device claiming again tops up its existing claim.
+-- Single-claim items (max_claims = 1) always force qty to 1.
+create or replace function claim_item(
+  p_item_id uuid, p_name text, p_token text, p_qty int default 1)
 returns text language plpgsql security definer set search_path = public as $$
-declare v_max int;
+declare
+  v_max int;
+  v_taken int;
+  v_mine_id uuid;
+  v_qty int;
 begin
   if length(trim(p_name)) = 0 or length(p_token) < 8 then
     return 'invalid';
   end if;
-  -- Lock the item row so concurrent claims on the same item queue up here.
   select max_claims into v_max from items where id = p_item_id for update;
   if v_max is null then
     return 'invalid';
   end if;
-  if exists (select 1 from claims
-             where item_id = p_item_id
-               and claim_token_hash = _hash_token(p_token)) then
-    return 'already';
+  v_qty := greatest(coalesce(p_qty, 1), 1);
+  if v_max = 1 then
+    v_qty := 1;
   end if;
-  if (select count(*) from claims where item_id = p_item_id) >= v_max then
+  select coalesce(sum(qty), 0) into v_taken from claims where item_id = p_item_id;
+  if v_taken + v_qty > v_max then
     return 'taken';
   end if;
-  insert into claims (item_id, claimer_name, claim_token_hash)
-  values (p_item_id, trim(p_name), _hash_token(p_token));
+  select id into v_mine_id from claims
+   where item_id = p_item_id and claim_token_hash = _hash_token(p_token);
+  if v_mine_id is not null then
+    update claims set qty = qty + v_qty where id = v_mine_id;
+  else
+    insert into claims (item_id, claimer_name, claim_token_hash, qty)
+    values (p_item_id, trim(p_name), _hash_token(p_token), v_qty);
+  end if;
   return 'ok';
 end $$;
 
@@ -192,7 +206,7 @@ end $$;
 -- ---------------------------------------------------------------- grants
 
 revoke all on all functions in schema public from public, anon;
-grant execute on function claim_item(uuid, text, text) to anon;
+grant execute on function claim_item(uuid, text, text, int) to anon;
 grant execute on function remove_claim(uuid, text) to anon;
 grant execute on function admin_check_password(text) to anon;
 grant execute on function admin_remove_claim(uuid, text) to anon;

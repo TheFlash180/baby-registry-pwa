@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Claim, Item, Retailer } from '../lib/types';
+import { claimedQty, type Claim, type Item, type Retailer } from '../lib/types';
 
 function formatZar(n: number): string {
   return `R${n.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}`;
@@ -24,13 +24,15 @@ export function ItemCard({
   const sorted = [...retailers].sort((a, b) => a.price_zar - b.price_zar);
   const cheapest = sorted[0];
   const iconSrc = `${import.meta.env.BASE_URL}${item.icon_path}`;
-  const spotsLeft = item.max_claims - claims.length;
+  const taken = claimedQty(claims);
+  const spotsLeft = item.max_claims - taken;
   const full = spotsLeft <= 0;
 
+  const first = claims[0];
   const pillLabel =
     claims.length === 1
-      ? claims[0].claimer_name
-      : `${claims[0]?.claimer_name} +${claims.length - 1}`;
+      ? `${first.claimer_name}${first.qty > 1 ? ` ×${first.qty}` : ''}`
+      : `${first?.claimer_name} +${claims.length - 1}`;
 
   return (
     <div className={`item-card${full ? ' claimed-card' : ''}`}>
@@ -62,9 +64,9 @@ export function ItemCard({
           )}
           {item.max_claims > 1 && !full && (
             <div className="spots-left" onClick={claims.length > 0 ? onShowClaims : undefined}>
-              {claims.length === 0
+              {taken === 0
                 ? `${item.max_claims} can claim this`
-                : `${claims.length} of ${item.max_claims} claimed · ${spotsLeft} left`}
+                : `${taken} of ${item.max_claims} claimed · ${spotsLeft} left`}
             </div>
           )}
         </div>
