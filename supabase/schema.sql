@@ -15,7 +15,9 @@ create table items (
   category_id uuid not null references categories(id) on delete cascade,
   name text not null,
   icon_path text not null default '',
-  sort_order int not null default 0
+  sort_order int not null default 0,
+  -- how many guests may claim this item (e.g. 3 people can each bring bottles)
+  max_claims int not null default 1
 );
 
 create table retailers (
@@ -26,11 +28,11 @@ create table retailers (
   url text not null default ''
 );
 
--- One claim per item, enforced at the database level: if two guests race,
--- the second insert fails and the app shows "someone just claimed this".
+-- Claims are capacity-checked in claim_item while holding a lock on the item
+-- row, so racing guests can never exceed an item's max_claims.
 create table claims (
   id uuid primary key default gen_random_uuid(),
-  item_id uuid not null references items(id) on delete cascade unique,
+  item_id uuid not null references items(id) on delete cascade,
   claimer_name text not null,
   -- Only a SHA-256 hash of the guest's device token is stored. The raw token
   -- never leaves the guest's browser except inside claim/unclaim RPC calls,
@@ -77,18 +79,31 @@ $$ select exists (select 1 from registry_settings
 
 -- ---------------------------------------------------------------- guest RPCs
 
--- Returns 'ok' on success, 'taken' if someone got there first.
+-- Returns 'ok', 'taken' (item is fully claimed), 'already' (this device
+-- already claimed this item), or 'invalid'.
 create or replace function claim_item(p_item_id uuid, p_name text, p_token text)
 returns text language plpgsql security definer set search_path = public as $$
+declare v_max int;
 begin
   if length(trim(p_name)) = 0 or length(p_token) < 8 then
     return 'invalid';
   end if;
+  -- Lock the item row so concurrent claims on the same item queue up here.
+  select max_claims into v_max from items where id = p_item_id for update;
+  if v_max is null then
+    return 'invalid';
+  end if;
+  if exists (select 1 from claims
+             where item_id = p_item_id
+               and claim_token_hash = _hash_token(p_token)) then
+    return 'already';
+  end if;
+  if (select count(*) from claims where item_id = p_item_id) >= v_max then
+    return 'taken';
+  end if;
   insert into claims (item_id, claimer_name, claim_token_hash)
   values (p_item_id, trim(p_name), _hash_token(p_token));
   return 'ok';
-exception when unique_violation then
-  return 'taken';
 end $$;
 
 -- Guests can only remove a claim made from their own device (matching token).
@@ -109,14 +124,42 @@ returns boolean language sql stable security definer set search_path = public as
 $$ select _admin_ok(p_password) $$;
 
 -- Owner override: remove any claim (guest lost their token / cleared storage).
-create or replace function admin_remove_claim(p_item_id uuid, p_password text)
+create or replace function admin_remove_claim(p_claim_id uuid, p_password text)
 returns boolean language plpgsql security definer set search_path = public as $$
 declare deleted int;
 begin
   if not _admin_ok(p_password) then return false; end if;
-  delete from claims where item_id = p_item_id;
+  delete from claims where id = p_claim_id;
   get diagnostics deleted = row_count;
   return deleted > 0;
+end $$;
+
+-- Owner can add items (icon falls back to the soft gift box automatically).
+create or replace function admin_add_item(
+  p_category_id uuid, p_name text, p_max_claims int, p_password text)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not _admin_ok(p_password) then return null; end if;
+  if length(trim(p_name)) = 0 then return null; end if;
+  insert into items (category_id, name, icon_path, sort_order, max_claims)
+  values (
+    p_category_id, trim(p_name), 'icons/gift-box.svg',
+    coalesce((select max(sort_order) from items where category_id = p_category_id), 0) + 1,
+    greatest(coalesce(p_max_claims, 1), 1))
+  returning id into v_id;
+  return v_id;
+end $$;
+
+-- Owner can change how many people may claim an item.
+create or replace function admin_set_max_claims(
+  p_item_id uuid, p_max_claims int, p_password text)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not _admin_ok(p_password) then return false; end if;
+  update items set max_claims = greatest(coalesce(p_max_claims, 1), 1)
+  where id = p_item_id;
+  return found;
 end $$;
 
 -- Add or update a retailer/price row. Pass p_id null to add.
@@ -153,6 +196,8 @@ grant execute on function claim_item(uuid, text, text) to anon;
 grant execute on function remove_claim(uuid, text) to anon;
 grant execute on function admin_check_password(text) to anon;
 grant execute on function admin_remove_claim(uuid, text) to anon;
+grant execute on function admin_add_item(uuid, text, int, text) to anon;
+grant execute on function admin_set_max_claims(uuid, int, text) to anon;
 grant execute on function admin_upsert_retailer(uuid, uuid, text, numeric, text, text) to anon;
 grant execute on function admin_delete_retailer(uuid, text) to anon;
 

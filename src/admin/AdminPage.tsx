@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import type { useRegistry } from '../lib/useRegistry';
-import type { Retailer } from '../lib/types';
+import type { Item, Retailer } from '../lib/types';
 import { Toasts, type ToastMsg } from '../components/Toast';
 import { TeddyBear } from '../components/Motifs';
 
@@ -21,11 +21,13 @@ export function AdminPage({
   const [password, setPassword] = useState(sessionStorage.getItem('registry-admin-pw') ?? '');
   const [unlocked, setUnlocked] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, Partial<Retailer>>>({});
-  const [refresh, setRefresh] = useState(0);
+  const [retailerDrafts, setRetailerDrafts] = useState<Record<string, Partial<Retailer>>>({});
+  const [newItemDrafts, setNewItemDrafts] = useState<Record<string, { name: string; max: string }>>({});
   const [localRetailers, setLocalRetailers] = useState<Retailer[] | null>(null);
+  const [localItems, setLocalItems] = useState<Item[] | null>(null);
 
   const retailers = localRetailers ?? registry.retailers;
+  const items = localItems ?? registry.items;
 
   const retailersByItem = useMemo(() => {
     const m = new Map<string, Retailer[]>();
@@ -37,15 +39,14 @@ export function AdminPage({
     return m;
   }, [retailers]);
 
-  const claimsByItem = useMemo(
-    () => new Map(registry.claims.map((c) => [c.item_id, c])),
-    [registry.claims],
-  );
-
   const reloadRetailers = async () => {
     const { data } = await supabase.from('retailers').select('*');
     if (data) setLocalRetailers(data as Retailer[]);
-    setRefresh((n) => n + 1);
+  };
+
+  const reloadItems = async () => {
+    const { data } = await supabase.from('items').select('*').order('sort_order');
+    if (data) setLocalItems(data as Item[]);
   };
 
   const unlock = async () => {
@@ -90,13 +91,43 @@ export function AdminPage({
     }
   };
 
-  const removeClaim = async (itemId: string, who: string) => {
+  const removeClaim = async (claimId: string, who: string) => {
     const { data, error } = await supabase.rpc('admin_remove_claim', {
-      p_item_id: itemId,
+      p_claim_id: claimId,
       p_password: password,
     });
     if (error || data !== true) push("Couldn't remove that claim.", true);
     else push(`Removed ${who}'s claim.`);
+  };
+
+  const addItem = async (categoryId: string) => {
+    const draft = newItemDrafts[categoryId];
+    if (!draft?.name.trim()) return;
+    const { data, error } = await supabase.rpc('admin_add_item', {
+      p_category_id: categoryId,
+      p_name: draft.name.trim(),
+      p_max_claims: Math.max(Number(draft.max) || 1, 1),
+      p_password: password,
+    });
+    if (error || !data) push("Couldn't add the item.", true);
+    else {
+      push(`Added "${draft.name.trim()}".`);
+      setNewItemDrafts({ ...newItemDrafts, [categoryId]: { name: '', max: '1' } });
+      await reloadItems();
+    }
+  };
+
+  const setMaxClaims = async (itemId: string, max: number) => {
+    const { data, error } = await supabase.rpc('admin_set_max_claims', {
+      p_item_id: itemId,
+      p_max_claims: max,
+      p_password: password,
+    });
+    if (error || data !== true) push("Couldn't update the claim limit.", true);
+    else {
+      push('Claim limit updated.');
+      await reloadItems();
+    }
   };
 
   if (!unlocked) {
@@ -132,14 +163,14 @@ export function AdminPage({
   }
 
   return (
-    <div className="admin" key={refresh}>
+    <div className="admin">
       <h2>Registry Owner</h2>
 
       <div className="panel">
         <strong>Claims</strong>
         {registry.claims.length === 0 && <p style={{ marginTop: 8 }}>No claims yet.</p>}
         {registry.claims.map((c) => {
-          const item = registry.items.find((i) => i.id === c.item_id);
+          const item = items.find((i) => i.id === c.item_id);
           return (
             <div className="claim-row" key={c.id}>
               <span>
@@ -148,7 +179,7 @@ export function AdminPage({
               <button
                 className="small-btn"
                 style={{ padding: '6px 10px' }}
-                onClick={() => void removeClaim(c.item_id, c.claimer_name)}
+                onClick={() => void removeClaim(c.id, c.claimer_name)}
               >
                 Remove
               </button>
@@ -158,74 +189,119 @@ export function AdminPage({
       </div>
 
       <div className="panel">
-        <strong>Items, retailers &amp; prices</strong>
-        {registry.categories.map((cat) => (
-          <div key={cat.id}>
-            <p style={{ marginTop: 14, fontWeight: 700 }}>
-              {cat.icon} {cat.name}
-            </p>
-            {registry.items
-              .filter((i) => i.category_id === cat.id)
-              .map((item) => {
-                const draft = drafts[item.id] ?? {};
-                return (
-                  <div className="item-block" key={item.id}>
-                    <div className="head">
-                      <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                        {item.name}
-                        {claimsByItem.has(item.id) && ' 🎁'}
-                      </span>
+        <strong>Items, claim limits, retailers &amp; prices</strong>
+        <p style={{ fontSize: '0.8rem', marginTop: 4, opacity: 0.75 }}>
+          "Spots" = how many guests may claim that item. New items use the soft
+          gift-box icon automatically.
+        </p>
+        {registry.categories.map((cat) => {
+          const newDraft = newItemDrafts[cat.id] ?? { name: '', max: '1' };
+          return (
+            <div key={cat.id}>
+              <p style={{ marginTop: 14, fontWeight: 700 }}>
+                {cat.icon} {cat.name}
+              </p>
+              {items
+                .filter((i) => i.category_id === cat.id)
+                .map((item) => {
+                  const draft = retailerDrafts[item.id] ?? {};
+                  const claimCount = registry.claims.filter((c) => c.item_id === item.id).length;
+                  return (
+                    <div className="item-block" key={item.id}>
+                      <div className="head">
+                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                          {item.name}
+                          {claimCount > 0 && ` 🎁×${claimCount}`}
+                        </span>
+                        <MaxClaimsEditor
+                          value={item.max_claims}
+                          min={Math.max(claimCount, 1)}
+                          onSave={(n) => void setMaxClaims(item.id, n)}
+                        />
+                      </div>
+                      {(retailersByItem.get(item.id) ?? []).map((r) => (
+                        <EditableRetailerRow
+                          key={r.id}
+                          retailer={r}
+                          onSave={(upd) => void saveRetailer(item.id, { ...upd, id: r.id })}
+                          onDelete={() => void deleteRetailer(r.id)}
+                        />
+                      ))}
+                      <div className="ret-row">
+                        <input
+                          placeholder="Store"
+                          value={draft.store ?? ''}
+                          onChange={(e) =>
+                            setRetailerDrafts({
+                              ...retailerDrafts,
+                              [item.id]: { ...draft, store: e.target.value },
+                            })
+                          }
+                        />
+                        <input
+                          placeholder="R"
+                          type="number"
+                          value={draft.price_zar ?? ''}
+                          onChange={(e) =>
+                            setRetailerDrafts({
+                              ...retailerDrafts,
+                              [item.id]: { ...draft, price_zar: Number(e.target.value) },
+                            })
+                          }
+                        />
+                        <input
+                          placeholder="URL"
+                          value={draft.url ?? ''}
+                          onChange={(e) =>
+                            setRetailerDrafts({
+                              ...retailerDrafts,
+                              [item.id]: { ...draft, url: e.target.value },
+                            })
+                          }
+                        />
+                        <button
+                          className="small-btn"
+                          disabled={!draft.store}
+                          onClick={() => {
+                            void saveRetailer(item.id, draft);
+                            setRetailerDrafts({ ...retailerDrafts, [item.id]: {} });
+                          }}
+                        >
+                          Add
+                        </button>
+                      </div>
                     </div>
-                    {(retailersByItem.get(item.id) ?? []).map((r) => (
-                      <EditableRetailerRow
-                        key={r.id}
-                        retailer={r}
-                        onSave={(upd) => void saveRetailer(item.id, { ...upd, id: r.id })}
-                        onDelete={() => void deleteRetailer(r.id)}
-                      />
-                    ))}
-                    <div className="ret-row">
-                      <input
-                        placeholder="Store"
-                        value={draft.store ?? ''}
-                        onChange={(e) =>
-                          setDrafts({ ...drafts, [item.id]: { ...draft, store: e.target.value } })
-                        }
-                      />
-                      <input
-                        placeholder="R"
-                        type="number"
-                        value={draft.price_zar ?? ''}
-                        onChange={(e) =>
-                          setDrafts({
-                            ...drafts,
-                            [item.id]: { ...draft, price_zar: Number(e.target.value) },
-                          })
-                        }
-                      />
-                      <input
-                        placeholder="URL"
-                        value={draft.url ?? ''}
-                        onChange={(e) =>
-                          setDrafts({ ...drafts, [item.id]: { ...draft, url: e.target.value } })
-                        }
-                      />
-                      <button
-                        className="small-btn"
-                        disabled={!draft.store}
-                        onClick={() => {
-                          void saveRetailer(item.id, draft);
-                          setDrafts({ ...drafts, [item.id]: {} });
-                        }}
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        ))}
+                  );
+                })}
+              <div className="ret-row" style={{ gridTemplateColumns: '1fr 80px auto', marginTop: 10 }}>
+                <input
+                  placeholder={`New item in ${cat.name}…`}
+                  value={newDraft.name}
+                  onChange={(e) =>
+                    setNewItemDrafts({ ...newItemDrafts, [cat.id]: { ...newDraft, name: e.target.value } })
+                  }
+                />
+                <input
+                  type="number"
+                  min={1}
+                  title="How many guests may claim it"
+                  value={newDraft.max}
+                  onChange={(e) =>
+                    setNewItemDrafts({ ...newItemDrafts, [cat.id]: { ...newDraft, max: e.target.value } })
+                  }
+                />
+                <button
+                  className="small-btn"
+                  style={{ padding: '8px 14px' }}
+                  disabled={!newDraft.name.trim()}
+                  onClick={() => void addItem(cat.id)}
+                >
+                  Add item
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <a className="back-link" href="#/">
@@ -233,6 +309,37 @@ export function AdminPage({
       </a>
       <Toasts toasts={toasts} />
     </div>
+  );
+}
+
+function MaxClaimsEditor({
+  value,
+  min,
+  onSave,
+}: {
+  value: number;
+  min: number;
+  onSave: (n: number) => void;
+}) {
+  const [val, setVal] = useState(String(value));
+  const n = Math.max(Number(val) || 1, 1);
+  const dirty = n !== value;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
+      spots
+      <input
+        type="number"
+        min={min}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        style={{ width: 58 }}
+      />
+      {dirty && (
+        <button className="small-btn" style={{ padding: '6px 10px' }} onClick={() => onSave(n)}>
+          Save
+        </button>
+      )}
+    </span>
   );
 }
 

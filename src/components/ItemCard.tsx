@@ -8,25 +8,32 @@ function formatZar(n: number): string {
 export function ItemCard({
   item,
   retailers,
-  claim,
+  claims,
   online,
   onClaim,
-  onShowClaim,
+  onShowClaims,
 }: {
   item: Item;
   retailers: Retailer[];
-  claim: Claim | undefined;
+  claims: Claim[];
   online: boolean;
   onClaim: () => void;
-  onShowClaim: () => void;
+  onShowClaims: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const sorted = [...retailers].sort((a, b) => a.price_zar - b.price_zar);
   const cheapest = sorted[0];
   const iconSrc = `${import.meta.env.BASE_URL}${item.icon_path}`;
+  const spotsLeft = item.max_claims - claims.length;
+  const full = spotsLeft <= 0;
+
+  const pillLabel =
+    claims.length === 1
+      ? claims[0].claimer_name
+      : `${claims[0]?.claimer_name} +${claims.length - 1}`;
 
   return (
-    <div className={`item-card${claim ? ' claimed-card' : ''}`}>
+    <div className={`item-card${full ? ' claimed-card' : ''}`}>
       <div className="item-row">
         <img
           className="item-icon"
@@ -53,10 +60,17 @@ export function ItemCard({
               )}
             </div>
           )}
+          {item.max_claims > 1 && !full && (
+            <div className="spots-left" onClick={claims.length > 0 ? onShowClaims : undefined}>
+              {claims.length === 0
+                ? `${item.max_claims} can claim this`
+                : `${claims.length} of ${item.max_claims} claimed · ${spotsLeft} left`}
+            </div>
+          )}
         </div>
-        {claim ? (
-          <button className="claimed-pill" onClick={onShowClaim} title="See who claimed this">
-            🎁 {claim.claimer_name}
+        {full ? (
+          <button className="claimed-pill" onClick={onShowClaims} title="See who claimed this">
+            🎁 {pillLabel}
           </button>
         ) : (
           <button className="btn btn-claim" onClick={onClaim} disabled={!online}>

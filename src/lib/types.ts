@@ -11,6 +11,7 @@ export interface Item {
   name: string;
   icon_path: string;
   sort_order: number;
+  max_claims: number;
 }
 
 export interface Retailer {

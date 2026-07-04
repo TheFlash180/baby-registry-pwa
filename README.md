@@ -13,9 +13,12 @@ Live at: `https://<username>.github.io/baby-registry-pwa/`
   connected guest sees the item claimed within seconds.
 - **Un-claiming**: your browser keeps a private random token; only the device
   that made a claim (or the registry owner) can remove it.
-- **Race-safety**: one claim per item is enforced by a database unique
-  constraint — if two guests race, the second gets a friendly "someone just
-  claimed this" message.
+- **Multiple claims per item**: each item has a claim capacity (e.g. 3 guests
+  can each bring baby bottles); the card shows how many spots are left. Set
+  per-item capacities in `/admin`.
+- **Race-safety**: capacity is checked in Postgres while holding a lock on the
+  item row — racing guests past the limit get a friendly "someone just claimed
+  the last one" popup, never an overbooked item.
 - **Prices**: curated per item for SA retailers (Takealot, Baby City,
   Woolworths, Checkers, Pick n Pay Baby) and editable by the owner in-app. No
   live scraping — retailer sites change constantly and scraping breaks and/or
@@ -80,8 +83,13 @@ enter the owner password, and you can:
 
 - edit every item's retailers, prices and links (changes are live immediately —
   no redeploy needed, it's all data in Supabase);
+- add new items to any category and set how many guests may claim each item;
 - remove any claim (for when a guest cleared their browser storage and can't
   un-claim their own pick).
+
+Existing databases created before multi-claim support: run
+[`supabase/migrate-001-multi-claims.sql`](supabase/migrate-001-multi-claims.sql)
+once in the SQL Editor.
 
 ## Item icons
 

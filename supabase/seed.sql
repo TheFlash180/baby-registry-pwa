@@ -9,7 +9,7 @@ declare
   catalog jsonb := $catalog$
 [
  {"name":"Sleep","icon":"🌙","items":[
-  {"slug":"crib-sheets","name":"Fitted crib sheets (3–4)","retailers":[
+  {"slug":"crib-sheets","name":"Fitted crib sheets (3–4)","max":3,"retailers":[
    {"store":"Takealot","price":450,"url":"https://www.takealot.com/all?qsearch=fitted%20crib%20sheet"},
    {"store":"Baby City","price":499,"url":"https://www.babycity.co.za/catalogsearch/result/?q=fitted+cot+sheet"}]},
   {"slug":"sleep-sacks","name":"Sleep sacks / swaddles","retailers":[
@@ -22,13 +22,13 @@ declare
    {"store":"Takealot","price":299,"url":"https://www.takealot.com/all?qsearch=nursery%20night%20light"},
    {"store":"Checkers","price":249,"url":"https://www.checkers.co.za/search/all?q=night%20light"}]}]},
  {"name":"Feeding","icon":"🍼","items":[
-  {"slug":"baby-bottles","name":"Baby bottles","retailers":[
+  {"slug":"baby-bottles","name":"Baby bottles","max":3,"retailers":[
    {"store":"Takealot","price":399,"url":"https://www.takealot.com/all?qsearch=baby%20bottles"},
    {"store":"Baby City","price":450,"url":"https://www.babycity.co.za/catalogsearch/result/?q=baby+bottles"}]},
   {"slug":"bottle-brush","name":"Bottle brush","retailers":[
    {"store":"Checkers","price":89,"url":"https://www.checkers.co.za/search/all?q=bottle%20brush"},
    {"store":"Takealot","price":119,"url":"https://www.takealot.com/all?qsearch=bottle%20brush"}]},
-  {"slug":"burp-cloths","name":"Burp cloths","retailers":[
+  {"slug":"burp-cloths","name":"Burp cloths","max":3,"retailers":[
    {"store":"Takealot","price":179,"url":"https://www.takealot.com/all?qsearch=burp%20cloths"},
    {"store":"Woolworths","price":199,"url":"https://www.woolworths.co.za/cat?Ntt=burp+cloth"}]},
   {"slug":"nursing-pillow","name":"Nursing pillow","retailers":[
@@ -40,7 +40,7 @@ declare
   {"slug":"milk-storage-bags","name":"Milk storage bags","retailers":[
    {"store":"Takealot","price":159,"url":"https://www.takealot.com/all?qsearch=breast%20milk%20storage%20bags"},
    {"store":"Baby City","price":189,"url":"https://www.babycity.co.za/catalogsearch/result/?q=milk+storage+bags"}]},
-  {"slug":"bibs","name":"Bibs","retailers":[
+  {"slug":"bibs","name":"Bibs","max":3,"retailers":[
    {"store":"Pick n Pay Baby","price":99,"url":"https://www.pnp.co.za/search/baby%20bibs"},
    {"store":"Woolworths","price":129,"url":"https://www.woolworths.co.za/cat?Ntt=baby+bibs"}]},
   {"slug":"bottle-warmer","name":"Bottle warmer","retailers":[
@@ -98,7 +98,7 @@ declare
   {"slug":"hooded-towels","name":"Hooded towels","retailers":[
    {"store":"Takealot","price":199,"url":"https://www.takealot.com/all?qsearch=baby%20hooded%20towel"},
    {"store":"Woolworths","price":249,"url":"https://www.woolworths.co.za/cat?Ntt=hooded+towel"}]},
-  {"slug":"washcloths","name":"Washcloths","retailers":[
+  {"slug":"washcloths","name":"Washcloths","max":2,"retailers":[
    {"store":"Pick n Pay Baby","price":79,"url":"https://www.pnp.co.za/search/baby%20washcloths"},
    {"store":"Woolworths","price":99,"url":"https://www.woolworths.co.za/cat?Ntt=baby+face+cloths"}]},
   {"slug":"baby-wash","name":"Fragrance-free baby wash","retailers":[
@@ -147,16 +147,16 @@ declare
    {"store":"Takealot","price":1299,"url":"https://www.takealot.com/all?qsearch=baby%20food%20maker"},
    {"store":"Baby City","price":1499,"url":"https://www.babycity.co.za/catalogsearch/result/?q=food+maker"}]}]},
  {"name":"Clothing","icon":"👶","items":[
-  {"slug":"sleepers","name":"Sleepers / pajamas (0–3m)","retailers":[
+  {"slug":"sleepers","name":"Sleepers / pajamas (0–3m)","max":3,"retailers":[
    {"store":"Pick n Pay Baby","price":249,"url":"https://www.pnp.co.za/search/baby%20sleepsuit"},
    {"store":"Woolworths","price":299,"url":"https://www.woolworths.co.za/cat?Ntt=baby+sleepsuit"}]},
-  {"slug":"bodysuits","name":"Bodysuits / onesies (0–3m)","retailers":[
+  {"slug":"bodysuits","name":"Bodysuits / onesies (0–3m)","max":3,"retailers":[
    {"store":"Pick n Pay Baby","price":199,"url":"https://www.pnp.co.za/search/baby%20bodyvest"},
    {"store":"Woolworths","price":249,"url":"https://www.woolworths.co.za/cat?Ntt=baby+bodysuit"}]},
-  {"slug":"socks-mittens","name":"Socks & mittens","retailers":[
+  {"slug":"socks-mittens","name":"Socks & mittens","max":2,"retailers":[
    {"store":"Pick n Pay Baby","price":79,"url":"https://www.pnp.co.za/search/baby%20socks"},
    {"store":"Woolworths","price":99,"url":"https://www.woolworths.co.za/cat?Ntt=baby+socks+mittens"}]},
-  {"slug":"hats","name":"Hats","retailers":[
+  {"slug":"hats","name":"Hats","max":2,"retailers":[
    {"store":"Pick n Pay Baby","price":69,"url":"https://www.pnp.co.za/search/baby%20beanie"},
    {"store":"Woolworths","price":89,"url":"https://www.woolworths.co.za/cat?Ntt=baby+hat"}]},
   {"slug":"cardigan","name":"Cardigan or sweater","retailers":[
@@ -217,8 +217,9 @@ begin
     v_item_sort := 0;
     for itm in select * from jsonb_array_elements(cat->'items') loop
       v_item_sort := v_item_sort + 1;
-      insert into items (category_id, name, icon_path, sort_order)
-      values (v_cat_id, itm->>'name', 'icons/' || (itm->>'slug') || '.svg', v_item_sort)
+      insert into items (category_id, name, icon_path, sort_order, max_claims)
+      values (v_cat_id, itm->>'name', 'icons/' || (itm->>'slug') || '.svg', v_item_sort,
+              coalesce((itm->>'max')::int, 1))
       returning id into v_item_id;
 
       for ret in select * from jsonb_array_elements(itm->'retailers') loop

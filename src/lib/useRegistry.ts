@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 import { getClaimToken, sha256Hex } from './claimToken';
 import type { Category, Claim, Item, Retailer } from './types';
 
-export type ClaimResult = 'ok' | 'taken' | 'invalid' | 'offline' | 'error';
+export type ClaimResult = 'ok' | 'taken' | 'already' | 'invalid' | 'offline' | 'error';
 
 export function useRegistry() {
   const [categories, setCategories] = useState<Category[]>([]);
