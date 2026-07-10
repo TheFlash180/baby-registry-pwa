@@ -124,12 +124,14 @@ export function ClaimedInfoModal({
   claims: Claim[];
   myTokenHash: string;
   busy: boolean;
-  onUnclaim: () => void;
+  onUnclaim: (qty: number) => void;
   onClose: () => void;
 }) {
   const mine = claims.find((c) => c.claim_token_hash === myTokenHash);
   const taken = claimedQty(claims);
   const full = taken >= item.max_claims;
+  // How many of my spots to give back (defaults to all of them).
+  const [removeQty, setRemoveQty] = useState(mine?.qty ?? 1);
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -156,12 +158,46 @@ export function ClaimedInfoModal({
         {mine ? (
           <>
             <p>Changed your mind or picked the wrong one?</p>
+            {mine.qty > 1 && (
+              <div className="qty-row">
+                <span>How many to give back?</span>
+                <div className="qty-stepper">
+                  <button
+                    type="button"
+                    disabled={removeQty <= 1}
+                    onClick={() => setRemoveQty((q) => Math.max(1, q - 1))}
+                    aria-label="fewer"
+                  >
+                    −
+                  </button>
+                  <span className="qty-value">{removeQty}</span>
+                  <button
+                    type="button"
+                    disabled={removeQty >= mine.qty}
+                    onClick={() => setRemoveQty((q) => Math.min(mine.qty, q + 1))}
+                    aria-label="more"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="actions">
               <button className="btn btn-soft" onClick={onClose}>
                 Keep it
               </button>
-              <button className="btn btn-danger-soft" disabled={busy} onClick={onUnclaim}>
-                {busy ? 'Removing…' : mine.qty > 1 ? `Remove my claim (×${mine.qty})` : 'Remove my claim'}
+              <button
+                className="btn btn-danger-soft"
+                disabled={busy}
+                onClick={() => onUnclaim(removeQty)}
+              >
+                {busy
+                  ? 'Removing…'
+                  : mine.qty > 1
+                    ? removeQty < mine.qty
+                      ? `Give back ${removeQty} of ${mine.qty}`
+                      : `Remove my claim (×${mine.qty})`
+                    : 'Remove my claim'}
               </button>
             </div>
           </>

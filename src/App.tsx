@@ -131,14 +131,25 @@ export default function App() {
     }
   };
 
-  const handleUnclaim = async () => {
+  const handleUnclaim = async (qty: number) => {
     if (!viewing) return;
+    const myClaim = (claimsByItem.get(viewing.id) ?? []).find(
+      (c) => c.claim_token_hash === registry.myTokenHash,
+    );
+    const partial = myClaim !== undefined && qty < myClaim.qty;
     setBusy(true);
-    const ok = await registry.unclaimItem(viewing.id);
+    const ok = await registry.unclaimItem(viewing.id, qty);
     setBusy(false);
     setViewing(null);
-    if (ok) push('Your claim was removed — thank you for updating!');
-    else push("We couldn't remove that claim — check your connection.", true);
+    if (ok) {
+      push(
+        partial
+          ? `Gave back ${qty} spot${qty > 1 ? 's' : ''} — thank you for updating!`
+          : 'Your claim was removed — thank you for updating!',
+      );
+    } else {
+      push("We couldn't remove that claim — check your connection.", true);
+    }
   };
 
   const viewingClaims = viewing ? (claimsByItem.get(viewing.id) ?? []) : [];
