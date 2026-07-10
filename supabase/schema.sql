@@ -112,7 +112,9 @@ begin
   select id into v_mine_id from claims
    where item_id = p_item_id and claim_token_hash = _hash_token(p_token);
   if v_mine_id is not null then
-    update claims set qty = qty + v_qty where id = v_mine_id;
+    -- Top-up from the same device: newest name wins too.
+    update claims set qty = qty + v_qty, claimer_name = trim(p_name)
+     where id = v_mine_id;
   else
     insert into claims (item_id, claimer_name, claim_token_hash, qty)
     values (p_item_id, trim(p_name), _hash_token(p_token), v_qty);
@@ -121,14 +123,26 @@ begin
 end $$;
 
 -- Guests can only remove a claim made from their own device (matching token).
-create or replace function remove_claim(p_item_id uuid, p_token text)
+-- p_qty gives back just that many spots of a multi-claim; null / >= the
+-- claimed quantity removes the claim entirely.
+create or replace function remove_claim(p_item_id uuid, p_token text, p_qty int default null)
 returns boolean language plpgsql security definer set search_path = public as $$
-declare deleted int;
+declare
+  v_id uuid;
+  v_mine_qty int;
 begin
-  delete from claims
-   where item_id = p_item_id and claim_token_hash = _hash_token(p_token);
-  get diagnostics deleted = row_count;
-  return deleted > 0;
+  select id, qty into v_id, v_mine_qty from claims
+   where item_id = p_item_id and claim_token_hash = _hash_token(p_token)
+   for update;
+  if v_id is null then
+    return false;
+  end if;
+  if p_qty is not null and p_qty >= 1 and p_qty < v_mine_qty then
+    update claims set qty = qty - p_qty where id = v_id;
+  else
+    delete from claims where id = v_id;
+  end if;
+  return true;
 end $$;
 
 -- ---------------------------------------------------------------- admin RPCs
@@ -219,7 +233,7 @@ end $$;
 
 revoke all on all functions in schema public from public, anon;
 grant execute on function claim_item(uuid, text, text, int) to anon;
-grant execute on function remove_claim(uuid, text) to anon;
+grant execute on function remove_claim(uuid, text, int) to anon;
 grant execute on function admin_check_password(text) to anon;
 grant execute on function admin_remove_claim(uuid, text) to anon;
 grant execute on function admin_add_item(uuid, text, int, text) to anon;

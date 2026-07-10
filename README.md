@@ -12,7 +12,8 @@ Live at: `https://<username>.github.io/baby-registry-pwa/`
 - **Claiming**: tap "I'll get this" → enter your name → done. Every other
   connected guest sees the item claimed within seconds.
 - **Un-claiming**: your browser keeps a private random token; only the device
-  that made a claim (or the registry owner) can remove it.
+  that made a claim (or the registry owner) can remove it. A guest who claimed
+  several spots can give back just some of them instead of all-or-nothing.
 - **Multiple claims per item**: each item has a claim capacity (e.g. 3 guests
   can each bring baby bottles); the card shows how many spots are left. Set
   per-item capacities in `/admin`.

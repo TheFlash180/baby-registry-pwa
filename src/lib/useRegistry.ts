@@ -84,12 +84,15 @@ export function useRegistry() {
     [refetchClaims],
   );
 
+  /** Remove a claim, or give back just `qty` spots of a multi-claim.
+   *  Omit `qty` (or pass the full amount) to remove the claim entirely. */
   const unclaimItem = useCallback(
-    async (itemId: string): Promise<boolean> => {
+    async (itemId: string, qty?: number): Promise<boolean> => {
       if (!navigator.onLine) return false;
       const { data, error } = await supabase.rpc('remove_claim', {
         p_item_id: itemId,
         p_token: getClaimToken(),
+        p_qty: qty ?? null,
       });
       await refetchClaims();
       return !error && data === true;
